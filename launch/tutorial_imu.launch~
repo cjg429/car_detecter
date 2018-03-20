@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+
+<launch>
+  <!--
+  <arg name="IS_TWISTSTAMPED" default="true" />
+  <arg name="publish_covariance" default="false"/>
+  #### set up data playback from bag #############################
+
+  <param name="/stamped_vel" value="$(arg IS_TWISTSTAMPED)"/>
+  -->
+  <arg name="geotiff_map_file_path" default="$(find hector_geotiff)/maps"/>
+
+  <param name="/use_sim_time" value="false"/>
+
+  <node name="hokuyo" pkg="urg_node" type="urg_node" output="screen" args="_ip_address:=192.168.1.11" />
+
+  <node name="imu_node" pkg="imu" type="imu_node.py" output="screen">
+    <param name="port" value="/dev/ttyACM0" />
+  </node>
+  <!--
+  <group if="$(arg publish_covariance)">
+    <param name="laser_scan_matcher_node/do_compute_covariance" value="1"/>
+    <param name="laser_scan_matcher_node/publish_pose_with_covariance" value="true"/>
+    <param name="laser_scan_matcher_node/publish_pose_with_covariance_stamped" value="true"/>
+  </group>
+  <node pkg="laser_scan_matcher" type="laser_scan_matcher_node"
+    name="laser_scan_matcher_node" output="screen">
+    <param name="base_frame" value="base_stabilized" />
+    <param name="publish_tf" value="false" />
+    <param name="max_iterations" value="10"/>
+  </node>
+  -->
+  <node name="tf_broadcaster" pkg="final_project" type="broadcaster" output="screen" />
+    <param name="imu_topic" value="imu" />
+    <param name="base_frame" value="base_link" />
+    <param name="base_stabilized_frame" value="base_stabilized" />
+    <param name="odom_frame" value="odom" />
+    <param name="odom_topic" value="odom" />
+
+  <include file="$(find final_project)/launch/mapping_default_imu.launch"/>
+
+  <include file="$(find hector_geotiff)/launch/geotiff_mapper.launch">
+    <arg name="trajectory_source_frame_name" value="scanmatcher_frame"/>
+    <arg name="map_file_path" value="$(arg geotiff_map_file_path)"/>
+  </include>
+
+</launch>

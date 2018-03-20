@@ -1,0 +1,122 @@
+#include <ros/ros.h>
+#include <tf/transform_broadcaster.h>
+#include <sensor_msgs/Imu.h>
+#include <nav_msgs/Odometry.h>
+
+std::string odom_topic;
+std::string odom_frame;
+std::string imu_topic;
+std::string base_frame;
+std::string base_stabilized_frame;
+tf::TransformBroadcaster* tfB_;
+tf::TransformBroadcaster* tfB_odom_;
+tf::StampedTransform transform_;
+tf::StampedTransform transform_odom_;
+tf::Quaternion tmp_;
+tf::Quaternion tmp_odom_;
+ros::Time curr_time;
+ros::Time last_time;
+double x = 0.0;
+double y = 0.0;
+double th = 0.0;
+
+#ifndef TF_MATRIX3x3_H
+  typedef btScalar tfScalar;
+  namespace tf { typedef btMatrix3x3 Matrix3x3; }
+#endif
+
+void Timercallback(const ros::TimerEvent&)
+{
+  tfB_->sendTransform(transform_);
+  tfB_odom_->sendTransform(transform_odom_);
+  static tf::TransformBroadcaster br1;
+  tf::Transform transform;
+  transform.setOrigin(tf::Vector3(0.0, 0.0, 0.0));
+  tf::Quaternion q;
+  q.setRPY(0.0, 0.0, 0.0);
+  transform.setRotation(q);
+  br1.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "base_link", "laser"));
+}
+
+void imuMsgCallback(const sensor_msgs::Imu& imu_msg)
+{
+  tf::quaternionMsgToTF(imu_msg.orientation, tmp_);
+  tfScalar yaw, pitch, roll;
+  tf::Matrix3x3(tmp_).getRPY(roll, pitch, yaw);
+  //ROS_INFO("roll : %f, pitch : %f, yaw : %f", roll, pitch, yaw);
+  //th = yaw; //change
+  tmp_.setRPY(roll, pitch, 0.0);
+  transform_.setRotation(tmp_);
+  transform_.stamp_ = ros::Time::now();//imu_msg.header.stamp;
+  //tfB_->sendTransform(transform_);
+}
+
+void odomMsgCallback(const nav_msgs::Odometry& odom_msg)
+{
+  curr_time = ros::Time::now();
+  double vx = odom_msg.twist.twist.linear.x;
+  double vy = odom_msg.twist.twist.linear.y;
+  double vth = odom_msg.twist.twist.angular.z;
+  double dt = (curr_time - last_time).toSec();
+  double delta_x = (vx * cos(th) - vy * sin(th)) * dt;
+  double delta_y = (vx * sin(th) + vy * cos(th)) * dt;
+  double delta_th = vth * dt;
+  x += delta_x;
+  y += delta_y;
+  th += delta_th;
+  transform_odom_.getOrigin().setX(x);
+  transform_odom_.getOrigin().setY(y);
+  tmp_odom_.setRPY(0, 0, th);
+  transform_odom_.setRotation(tmp_odom_);
+  transform_odom_.stamp_ = curr_time;
+  //tfB_odom_->sendTransform(transform_odom_);
+  last_time = curr_time;
+}
+
+int main(int argc, char** argv){
+  ros::init(argc, argv, "my_tf_broadcaster");
+  ros::NodeHandle nh;
+  ros::Rate loop_rate(60);
+  nh.param("imu_topic", imu_topic, std::string("imu"));
+  nh.param("base_frame", base_frame, std::string("base_link"));
+  nh.param("base_stabilized_frame", base_stabilized_frame, std::string("base_stabilized"));
+  nh.param("odom_topic", odom_topic, std::string("odom"));
+  nh.param("odom_frame", odom_frame, std::string("odom"));
+  ros::Subscriber imu_subscriber = nh.subscribe(imu_topic, 10, imuMsgCallback);
+  ros::Subscriber odom_subscriber = nh.subscribe(odom_topic, 10, odomMsgCallback);
+  ros::Timer timer = nh.createTimer(ros::Duration(0.1), Timercallback);
+  
+  tfB_ = new tf::TransformBroadcaster();
+  transform_.getOrigin().setX(0.0);
+  transform_.getOrigin().setY(0.0);
+  transform_.getOrigin().setZ(0.0);
+  transform_.frame_id_ = base_stabilized_frame;
+  transform_.child_frame_id_ = base_frame;
+
+  tfB_odom_ = new tf::TransformBroadcaster();
+  transform_odom_.getOrigin().setZ(0.0);
+  transform_odom_.frame_id_ = odom_frame;
+  transform_odom_.child_frame_id_ = base_stabilized_frame;
+
+  curr_time = ros::Time::now();
+  last_time = ros::Time::now();
+  ros::spin();
+  /*
+  while (ros::ok())
+  {
+    static tf::TransformBroadcaster br1;
+    //static tf::TransformBroadcaster br2;
+    //static tf::TransformBroadcaster br3;
+    tf::Transform transform;
+    transform.setOrigin(tf::Vector3(0.0, 0.0, 0.0));
+    tf::Quaternion q;
+    q.setRPY(0.0, 0.0, 0.0);
+    transform.setRotation(q);
+    br1.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "base_link", "laser"));
+    //br2.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "world", "map"));
+    //br3.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "map", "base_link"));
+    ros::spinOnce();
+    loop_rate.sleep();
+  }*/
+  return 0;
+};
